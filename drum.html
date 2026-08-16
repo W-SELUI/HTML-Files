@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air Drum Motion Instrument</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: white;
+            font-family: sans-serif;
+            text-align: center;
+        }
+        .container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            margin: 20px auto;
+        }
+        /* Mirror the video so it feels natural like a mirror */
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: scaleX(-1);
+        }
+        canvas {
+            z-index: 10;
+        }
+        #info {
+            font-size: 18px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Wave Your Hands to Play Drums!</h1>
+    <p id="info">Click anywhere on the screen first to enable audio, then allow camera access.</p>
+
+    <div class="container">
+        <!-- Hidden video element that grabs the webcam -->
+        <video id="webcam" width="640" height="480" autoplay playsinline style="display:none;"></video>
+        <!-- Canvas where we draw the video and the interactive buttons -->
+        <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let oldFrame = null;
+        let audioCtx = null;
+
+        // Define two interactive trigger zones (Left Drum and Right Drum)
+        // Format: [x, y, width, height, frequency_of_sound, isTriggeredByMotion]
+        const zones = [
+            { x: 50, y: 100, w: 120, h: 120, note: 200, active: false, name: "Low Drum" },
+            { x: 470, y: 100, w: 120, h: 120, note: 400, active: false, name: "High Drum" }
+        ];
+
+        // Initialize Audio on user click (Browsers block sound until clicked)
+        window.addEventListener('click', () => {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                document.getElementById('info').innerText = "Audio Ready! Wave your hands in the red boxes.";
+                startWebcam();
+            }
+        });
+
+        // Request webcam access
+        function startWebcam() {
+            navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+                .then(stream => {
+                    video.srcObject = stream;
+                    video.addEventListener('loadedmetadata', () => {
+                        requestAnimationFrame(processFrame);
+                    });
+                })
+                .catch(err => {
+                    console.error("Camera access denied: ", err);
+                    document.getElementById('info').innerText = "Error: Camera access denied.";
+                });
+        }
+
+        // Synthesize a quick beep sound using Web Audio API (No external sound files needed!)
+        function playTone(frequency) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+            
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            // Quick fade out so it sounds punchy like a drum
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        // Core Motion Detection Loop
+        function processFrame() {
+            // Draw current video frame to our visible canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Get pixel data of the current frame
+            const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            if (oldFrame) {
+                // Loop through each interactive zone to check for motion
+                zones.forEach(zone => {
+                    let changedPixels = 0;
+                    let totalPixelsChecked = 0;
+
+                    // Scan pixels inside the specific bounding box of the zone
+                    // Step by 4 pixels to make it run extremely fast
+                    for (let y = zone.y; y < zone.y + zone.h; y += 4) {
+                        for (let x = zone.x; x < zone.x + zone.w; x += 4) {
+                            
+                            // Map 2D coordinates to the 1D pixel array (Red, Green, Blue, Alpha)
+                            const index = (y * canvas.width + x) * 4;
+                            
+                            // Calculate brightness difference for this pixel between frames
+                            const currentBrightness = currentFrame.data[index] + currentFrame.data[index+1] + currentFrame.data[index+2];
+                            const oldBrightness = oldFrame.data[index] + oldFrame.data[index+1] + oldFrame.data[index+2];
+                            const diff = Math.abs(currentBrightness - oldBrightness) / 3;
+
+                            totalPixelsChecked++;
+                            if (diff > 40) { // Threshold: Adjust this number to change sensitivity
+                                changedPixels++;
+                            }
+                        }
+                    }
+
+                    // If more than 15% of the zone pixels changed, motion is detected!
+                    const motionPercentage = changedPixels / totalPixelsChecked;
+                    if (motionPercentage > 0.15) {
+                        if (!zone.active) { 
+                            playTone(zone.note); // Trigger sound
+                            zone.active = true;  // Lock it so it doesn't spam the sound
+                        }
+                    } else {
+                        zone.active = false; // Reset lock when motion stops
+                    }
+                });
+            }
+
+            // Store current frame to compare against the next one
+            oldFrame = currentFrame;
+
+            // Draw visual UI overlay boxes for the visitors to see
+            zones.forEach(zone => {
+                ctx.strokeStyle = zone.active ? '#00FF00' : '#FF0000';
+                ctx.lineWidth = zone.active ? 6 : 3;
+                ctx.strokeRect(zone.x, zone.y, zone.w, zone.h);
+                
+                // Text label
+                ctx.fillStyle = '#FFF';
+                ctx.font = '16px sans-serif';
+                ctx.fillText(zone.name, zone.x + 5, zone.y + 25);
+            });
+
+            // Keep looping
+            requestAnimationFrame(processFrame);
+        }
+    </script>
+</body>
+</html>
