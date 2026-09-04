@@ -1,0 +1,23 @@
+body {
+    margin: 0;
+    background: black;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-family: 'Press Start 2P', cursive;
+}
+
+canvas {
+    background: radial-gradient(
+            circle,
+            #111,
+            #000
+        );
+    border: 3px solid #00ffff;
+
+    box-shadow:
+        0 0 10px #00ffff,
+        0 0 20px #00ffff,
+        0 0 40px #00ffff;
+}
